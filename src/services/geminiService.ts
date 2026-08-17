@@ -7,49 +7,7 @@
  */
 
 import type { ChatMessage } from '@/data/dummyData';
-
-const SYSTEM_INSTRUCTION_BASE = `You are Uzhavan AI, a friendly and knowledgeable agricultural assistant for Indian farmers, specialised in Tamil Nadu farming.
-
-Your expertise covers:
-- Crop cultivation: paddy, sugarcane, banana, tomato, groundnut, maize, black gram, cotton, millets
-- Tamil Nadu agri seasons: Kharif (Jun–Sep), Rabi (Oct–Jan), Zaid (Feb–May)
-- Soil types: red soil, black soil, alluvial, laterite
-- Irrigation: drip, sprinkler, flood; canal networks; bore wells
-- Pests & diseases: early blight, blast, fall armyworm, stem borer, red rot, powdery mildew
-- Fertilizers: urea, DAP, MOP, micronutrients; organic inputs; bio-fertilisers
-- Government schemes: PM-KISAN, PMFBY, Soil Health Card, TNAU services, Fasal Bima Yojana, eNAM
-- Market prices, mandi rates, FPOs, NAFED
-- Weather-based advisories
-
-Communication style:
-- Warm, respectful, practical — speak like a trusted agri-officer
-- Give specific, actionable advice (exact dosages, timings, field names when provided)
-- Use local context: Tamil Nadu districts, TNAU recommendations, state schemes
-- Keep answers concise but complete; use bullet points for multi-step advice
-- When the farmer's profile is provided, reference it directly and tailor every answer
-- Respond in the farmer's preferred language when specified; Tamil is strongly preferred
-- Mix Tamil terms naturally when appropriate (e.g. "நெல் சாகுபடி", "களை நிர்வாகம்")
-
-Safety: Never recommend banned pesticides. Always suggest consulting a local Krishi Vigyan Kendra (KVK) for complex cases.`;
-
-function buildSystemInstruction(farmerMemoryContext?: string, preferredLanguage?: string): string {
-  let instruction = SYSTEM_INSTRUCTION_BASE;
-  if (farmerMemoryContext && farmerMemoryContext.trim()) {
-    instruction += `\n\n${farmerMemoryContext.trim()}`;
-  }
-  if (preferredLanguage && preferredLanguage !== 'en') {
-    const langNames: Record<string, string> = {
-      ta: 'Tamil (தமிழ்)',
-      hi: 'Hindi (हिंदी)',
-      te: 'Telugu (తెలుగు)',
-      ml: 'Malayalam (മലയാളം)',
-      kn: 'Kannada (ಕನ್ನಡ)',
-    };
-    const langName = langNames[preferredLanguage] ?? preferredLanguage;
-    instruction += `\n\nIMPORTANT: This farmer prefers ${langName}. Respond primarily in ${langName} and mix in simple English only for technical terms and scheme names.`;
-  }
-  return instruction;
-}
+import type { FarmAIContext } from '@/services/aiContextService';
 
 export interface GeminiSession {
   sendMessage: (text: string) => Promise<string>;
@@ -110,11 +68,9 @@ async function callEdgeFunction(payload: Record<string, unknown>): Promise<strin
 
 export function createGeminiSession(
   seedMessages: ChatMessage[] = [],
-  farmerMemoryContext?: string,
+  context?: FarmAIContext | null,
   preferredLanguage?: string,
 ): GeminiSession {
-  const systemInstruction = buildSystemInstruction(farmerMemoryContext, preferredLanguage);
-
   const history = seedMessages
     .filter((m) => m.role === 'user' || m.role === 'assistant')
     .map((m) => ({ role: m.role as 'user' | 'assistant', text: m.text }));
@@ -126,7 +82,13 @@ export function createGeminiSession(
           action: 'chat',
           message: text,
           history,
-          farmerMemoryContext: systemInstruction,
+          farmerMemoryContext: context?.farmerMemoryContext ?? undefined,
+          weatherContext: context?.weatherContext ?? undefined,
+          alertsContext: context?.alertsContext ?? undefined,
+          expensesContext: context?.expensesContext ?? undefined,
+          yieldContext: context?.yieldContext ?? undefined,
+          marketContext: context?.marketContext ?? undefined,
+          preferredLanguage,
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Unknown error';
@@ -150,10 +112,13 @@ export async function askGeminiWithImage(prompt: string, imageDataUri: string): 
   });
 }
 
-export async function askGemini(prompt: string, farmerMemoryContext?: string, preferredLanguage?: string): Promise<string> {
-  const session = createGeminiSession([], farmerMemoryContext, preferredLanguage);
+export async function askGemini(
+  prompt: string,
+  context?: FarmAIContext | null,
+  preferredLanguage?: string,
+): Promise<string> {
+  const session = createGeminiSession([], context, preferredLanguage);
   return session.sendMessage(prompt);
 }
 
-// Kept for backward compatibility — no longer used to gate mock mode.
 export const isGeminiConfigured = true;

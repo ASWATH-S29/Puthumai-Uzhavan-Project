@@ -1,25 +1,36 @@
 /**
- * AIAssistantPage.tsx  v2.0
- * Farm-Aware AI Copilot with voice, multilingual, and farmer memory.
+ * AIAssistantPage.tsx  v2.1
+ * Farm-Aware AI Copilot with voice, multilingual, farmer memory,
+ * rich farm context (weather, alerts, expenses, yield, market),
+ * and database-backed conversation history.
  */
 
 import { useState, useRef, useEffect, useCallback, type FormEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Bot, Send, Sparkles, Mic, MicOff, ImagePlus, Plus, MessageSquare,
-  Volume2, VolumeX, Globe, Brain,
+  Volume2, VolumeX, Globe, Brain, Trash2, Loader2, Cloud, AlertTriangle, Wallet, TrendingUp,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import PageHeader from '@/components/ui/PageHeader';
 import GlassCard from '@/components/ui/GlassCard';
 import Icon from '@/components/ui/Icon';
 import {
-  chatSeed, chatHistory, suggestedQuestions, aiSuggestions,
+  suggestedQuestions, aiSuggestions,
   type ChatMessage,
 } from '@/data/dummyData';
 import { createGeminiSession, type GeminiSession } from '@/services/geminiService';
 import { useAuth } from '@/context/AuthContext';
-import { getFarmerMemory, buildFarmerMemoryContext, type FarmerMemory } from '@/services/farmerMemoryService';
+import { getFarmerMemory, type FarmerMemory } from '@/services/farmerMemoryService';
+import { getAlerts } from '@/services/farmerAlertsService';
+import { fetchWeather } from '@/services/weatherService';
+import { getExpenses } from '@/services/expenseService';
+import { buildFarmAIContext, type FarmAIContext } from '@/services/aiContextService';
+import {
+  saveMessage, loadConversation, listConversations, deleteConversation,
+  renameConversation, generateTitle, createConversationId,
+  type ConversationSummary,
+} from '@/services/conversationService';
 
 interface SpeechRecognitionResultLike {
   0?: { transcript?: string };
@@ -58,68 +69,141 @@ function uid(p: string) {
   return `${p}${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
+function getSR(): SpeechRecognitionCtor | undefined {
+  return (window as unknown as { SpeechRecognition?: SpeechRecognitionCtor; webkitSpeechRecognition?: SpeechRecognitionCtor }).SpeechRecognition
+    ?? (window as unknown as { webkitSpeechRecognition?: SpeechRecognitionCtor }).webkitSpeechRecognition;
+}
+
 export default function AIAssistantPage() {
   const { profile, user } = useAuth();
 
   const [farmerMemory, setFarmerMemory] = useState<FarmerMemory | null>(null);
-  const memoryContextRef = useRef<string>('');
+  const [aiContext, setAIContext] = useState<FarmAIContext | null>(null);
+  const [contextLoading, setContextLoading] = useState(true);
+  const [contextError, setContextError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!user?.id) return;
-    getFarmerMemory(user.id)
-      .then((mem) => {
-        setFarmerMemory(mem);
-        memoryContextRef.current = buildFarmerMemoryContext(mem);
-      })
-      .catch(() => {});
-  }, [user?.id]);
+  // Conversations
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState('');
+  const [typing, setTyping] = useState(false);
 
+  // Voice
   const [selectedLang, setSelectedLang] = useState(() => {
     const saved = profile?.preferred_language ?? 'en';
     return LANGUAGE_OPTIONS.find((l) => l.prompt === saved) ?? LANGUAGE_OPTIONS[0];
   });
-
-  const [messages, setMessages] = useState<ChatMessage[]>(chatSeed);
-  const [input, setInput] = useState('');
-  const [typing, setTyping] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
+  const [voiceSupported, setVoiceSupported] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const ttsSupported = typeof window !== 'undefined' && 'speechSynthesis' in window;
 
+  const sessionRef = useRef<GeminiSession | null>(null);
+  const contextRef = useRef<FarmAIContext | null>(null);
+  const endRef = useRef<HTMLDivElement>(null);
+
+  // ── Load farm context (memory, weather, alerts, expenses, yield) ──
+  useEffect(() => {
+    if (!user?.id) return;
+    setContextLoading(true);
+    setContextError(null);
+
+    (async () => {
+      try {
+        const memory = await getFarmerMemory(user.id);
+        setFarmerMemory(memory);
+
+        // Fetch weather, alerts, expenses in parallel — each can fail gracefully
+        const location = memory?.district ?? memory?.village ?? 'Tamil Nadu';
+        const [weatherResult, alertsResult, expensesResult] = await Promise.allSettled([
+          fetchWeather(location),
+          getAlerts(user.id),
+          getExpenses(user.id),
+        ]);
+
+        const weather = weatherResult.status === 'fulfilled' ? weatherResult.value : null;
+        const alerts = alertsResult.status === 'fulfilled' ? alertsResult.value : [];
+        const expenses = expensesResult.status === 'fulfilled' ? expensesResult.value : null;
+
+        // Yield summary from memory (no separate yield table yet)
+        let yieldSummary: string | null = null;
+        if (memory?.current_crop && memory?.farm_size_acres) {
+          yieldSummary = `Current crop: ${memory.current_crop} on ${memory.farm_size_acres} acres`;
+          if (memory.previous_yield_kg) yieldSummary += `; previous yield: ${memory.previous_yield_kg} kg`;
+          if (memory.crop_stage) yieldSummary += `; current stage: ${memory.crop_stage}`;
+        }
+
+        const ctx = await buildFarmAIContext({
+          memory,
+          weather,
+          alerts,
+          expenses,
+          yieldSummary,
+        });
+        contextRef.current = ctx;
+        setAIContext(ctx);
+      } catch (err) {
+        console.error('AI context load error:', err);
+        setContextError('Unable to load your farm data. AI will respond with general knowledge only.');
+      } finally {
+        setContextLoading(false);
+      }
+    })();
+  }, [user?.id]);
+
+  // ── Load conversation list ──
+  const refreshConversations = useCallback(async () => {
+    if (!user?.id) return;
+    try {
+      const list = await listConversations(user.id);
+      setConversations(list);
+    } catch {
+      // silent — list just stays empty
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    refreshConversations();
+  }, [refreshConversations]);
+
+  // ── Session management ──
+  const getSession = useCallback((): GeminiSession => {
+    if (!sessionRef.current) {
+      sessionRef.current = createGeminiSession([], contextRef.current, selectedLang.prompt);
+    }
+    return sessionRef.current;
+  }, [selectedLang.prompt]);
+
+  useEffect(() => { sessionRef.current = null; }, [selectedLang, activeConversationId]);
+
+  // ── Scroll to bottom on new messages ──
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, typing]);
+
+  // ── Voice support detection ──
+  useEffect(() => {
+    setVoiceSupported(!!getSR());
+  }, []);
+
+  // ── TTS ──
   const speak = useCallback((text: string) => {
     if (!ttsEnabled || !ttsSupported) return;
     window.speechSynthesis.cancel();
     const utter = new SpeechSynthesisUtterance(text.replace(/[*_#`]/g, ''));
     utter.lang = selectedLang.code;
     utter.rate = 0.9;
+    utter.onstart = () => setSpeaking(true);
+    utter.onend = () => setSpeaking(false);
+    utter.onerror = () => setSpeaking(false);
     window.speechSynthesis.speak(utter);
-  }, [ttsEnabled, ttsSupported, selectedLang]);
+  }, [ttsEnabled, ttsSupported, selectedLang.code]);
 
-  const sessionRef = useRef<GeminiSession | null>(null);
-
-  const getSession = useCallback(() => {
-    if (!sessionRef.current) {
-      sessionRef.current = createGeminiSession(chatSeed, memoryContextRef.current, selectedLang.prompt);
-    }
-    return sessionRef.current;
-  }, [selectedLang.prompt]);
-
-  useEffect(() => { sessionRef.current = null; }, [selectedLang]);
-
-  const endRef = useRef<HTMLDivElement>(null);
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, typing]);
-
-  const [listening, setListening] = useState(false);
-  const [voiceSupported, setVoiceSupported] = useState(false);
-  const [voiceError, setVoiceError] = useState<string | null>(null);
-  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
-
-  useEffect(() => {
-    const SR = (window as unknown as { SpeechRecognition?: SpeechRecognitionCtor; webkitSpeechRecognition?: SpeechRecognitionCtor }).SpeechRecognition ?? (window as unknown as { webkitSpeechRecognition?: SpeechRecognitionCtor }).webkitSpeechRecognition;
-    setVoiceSupported(!!SR);
-  }, []);
-
+  // ── Voice input toggle ──
   const toggleVoice = useCallback(() => {
-    const SR = (window as unknown as { SpeechRecognition?: SpeechRecognitionCtor; webkitSpeechRecognition?: SpeechRecognitionCtor }).SpeechRecognition ?? (window as unknown as { webkitSpeechRecognition?: SpeechRecognitionCtor }).webkitSpeechRecognition;
+    const SR = getSR();
     if (!SR) {
       setVoiceError('Voice input is not supported in this browser. Try Chrome on Android or desktop.');
       return;
@@ -155,47 +239,150 @@ export default function AIAssistantPage() {
     }
   }, [listening, selectedLang.code]);
 
-  const send = useCallback(async (text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed || typing) return;
-    const userMsg: ChatMessage = { id: uid('u'), role: 'user', text: trimmed, time: now() };
-    setMessages((m) => [...m, userMsg]);
-    setInput('');
-    setTyping(true);
-    try {
-      const isFirst = messages.filter((m) => m.role === 'user').length === 0;
-      const prompt = isFirst && memoryContextRef.current
-        ? `${memoryContextRef.current}\n${trimmed}`
-        : trimmed;
-      const replyText = await getSession().sendMessage(prompt);
-      setMessages((m) => [...m, { id: uid('a'), role: 'assistant', text: replyText, time: now() }]);
-      speak(replyText);
-    } catch (err) {
-      const errText = err instanceof Error ? err.message : 'Something went wrong.';
-      setMessages((m) => [...m, { id: uid('e'), role: 'assistant', text: `⚠️ ${errText}`, time: now() }]);
-    } finally {
-      setTyping(false);
-    }
-  }, [typing, messages, getSession, speak]);
-
-  const onSubmit = (e: FormEvent) => { e.preventDefault(); send(input); };
-
-  const newChat = () => {
+  // ── Start a new conversation ──
+  const newChat = useCallback(() => {
+    const convId = createConversationId();
+    setActiveConversationId(convId);
     setMessages([]);
     setInput('');
     setTyping(false);
     sessionRef.current = null;
     window.speechSynthesis?.cancel();
-  };
+    setSpeaking(false);
+  }, []);
+
+  // ── Open an existing conversation ──
+  const openConversation = useCallback(async (convId: string) => {
+    if (!user?.id) return;
+    setActiveConversationId(convId);
+    sessionRef.current = null;
+    window.speechSynthesis?.cancel();
+    setSpeaking(false);
+    try {
+      const dbMessages = await loadConversation(user.id, convId);
+      const mapped: ChatMessage[] = dbMessages.map((m) => ({
+        id: m.id,
+        role: m.role,
+        text: m.message,
+        time: new Date(m.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false }),
+      }));
+      setMessages(mapped);
+    } catch {
+      setMessages([]);
+    }
+  }, [user?.id]);
+
+  // ── Delete a conversation ──
+  const handleDeleteConversation = useCallback(async (convId: string) => {
+    if (!user?.id) return;
+    await deleteConversation(user.id, convId);
+    if (activeConversationId === convId) {
+      setActiveConversationId(null);
+      setMessages([]);
+      sessionRef.current = null;
+    }
+    refreshConversations();
+  }, [user?.id, activeConversationId, refreshConversations]);
+
+  // ── Send a message ──
+  const send = useCallback(async (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || typing) return;
+
+    // Ensure we have a conversation
+    let convId = activeConversationId;
+    if (!convId) {
+      convId = createConversationId();
+      setActiveConversationId(convId);
+    }
+
+    const userMsg: ChatMessage = { id: uid('u'), role: 'user', text: trimmed, time: now() };
+    setMessages((m) => [...m, userMsg]);
+    setInput('');
+    setTyping(true);
+
+    // Save user message to DB (fire-and-forget)
+    if (user?.id) {
+      saveMessage(user.id, convId, 'user', trimmed).catch(() => {});
+    }
+
+    try {
+      const replyText = await getSession().sendMessage(trimmed);
+      setMessages((m) => [...m, { id: uid('a'), role: 'assistant', text: replyText, time: now() }]);
+      speak(replyText);
+
+      // Save assistant message to DB
+      if (user?.id) {
+        saveMessage(user.id, convId, 'assistant', replyText).catch(() => {});
+        // Rename conversation if it's the first message
+        if (conversations.find((c) => c.conversation_id === convId) === undefined) {
+          await renameConversation(user.id, convId, generateTitle(trimmed));
+          refreshConversations();
+        }
+      }
+    } catch (err) {
+      const errText = err instanceof Error ? err.message : 'Something went wrong.';
+      setMessages((m) => [...m, { id: uid('e'), role: 'assistant', text: `⚠️ ${errText}`, time: now() }]);
+      if (user?.id) {
+        saveMessage(user.id, convId, 'assistant', `⚠️ ${errText}`).catch(() => {});
+      }
+    } finally {
+      setTyping(false);
+    }
+  }, [typing, activeConversationId, user?.id, getSession, speak, conversations, refreshConversations]);
+
+  const onSubmit = (e: FormEvent) => { e.preventDefault(); send(input); };
 
   const hasMemory = farmerMemory && (farmerMemory.current_crop || farmerMemory.district || farmerMemory.farmer_name);
+
+  // Context status indicators
+  const contextSources = [
+    { icon: Brain, label: 'Farm Profile', active: !!aiContext?.farmerMemoryContext },
+    { icon: Cloud, label: 'Weather', active: !!aiContext?.weatherContext },
+    { icon: AlertTriangle, label: 'Alerts', active: !!aiContext?.alertsContext },
+    { icon: Wallet, label: 'Expenses', active: !!aiContext?.expensesContext },
+    { icon: TrendingUp, label: 'Yield', active: !!aiContext?.yieldContext },
+  ];
 
   return (
     <div className="space-y-6">
       <PageHeader icon={Bot} title="AI Farming Assistant"
-        subtitle="Farm-aware AI copilot — uses your farm profile to give personalised, field-specific guidance." />
+        subtitle="Farm-aware AI copilot — uses your farm profile, weather, alerts, and expenses to give personalised, field-specific guidance." />
 
-      {!hasMemory && (
+      {/* Context loading / error states */}
+      {contextLoading && (
+        <div className="flex items-center gap-2 rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+          <Loader2 size={16} className="text-brand-600 animate-spin" />
+          <span className="text-xs text-ink-600">Loading your farm data for personalised AI context…</span>
+        </div>
+      )}
+
+      {contextError && (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+          <AlertTriangle size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-amber-700">{contextError}</p>
+        </div>
+      )}
+
+      {/* Context status bar */}
+      {!contextLoading && aiContext && (
+        <div className="flex flex-wrap items-center gap-2">
+          {contextSources.map((src) => (
+            <div key={src.label}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold border transition-colors ${
+                src.active
+                  ? 'bg-brand-50 border-brand-100 text-brand-700'
+                  : 'bg-gray-50 border-gray-100 text-ink-600/50'
+              }`}>
+              <src.icon size={12} />
+              {src.label}
+              {src.active && <span className="h-1.5 w-1.5 rounded-full bg-brand-500" />}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!hasMemory && !contextLoading && (
         <div className="flex items-start gap-3 rounded-xl border border-brand-100 bg-brand-50 px-4 py-3">
           <Brain size={16} className="text-brand-600 flex-shrink-0 mt-0.5" />
           <div className="text-xs text-brand-700">
@@ -256,17 +443,34 @@ export default function AIAssistantPage() {
               </div>
             )}
 
-            <div className="mt-4 text-[11px] font-bold uppercase tracking-widest text-ink-600 mb-2">Previous Chats</div>
+            <div className="mt-4 text-[11px] font-bold uppercase tracking-widest text-ink-600 mb-2">Conversations</div>
             <div className="space-y-1.5 max-h-[220px] overflow-y-auto scrollbar-none">
-              {chatHistory.map((ch) => (
-                <button key={ch.id}
-                  className={`w-full text-left rounded-xl px-3 py-2.5 transition-colors ${ch.active ? 'bg-brand-50 border border-brand-100' : 'hover:bg-brand-50'}`}>
-                  <div className="flex items-center gap-2">
-                    <MessageSquare size={14} className={ch.active ? 'text-brand-600' : 'text-ink-600/60'} />
-                    <span className={`text-xs font-semibold truncate ${ch.active ? 'text-brand-700' : 'text-ink-800/65'}`}>{ch.title}</span>
-                  </div>
-                  <div className="text-[10px] text-ink-600/60 mt-0.5 pl-5">{ch.time}</div>
-                </button>
+              {conversations.length === 0 && (
+                <div className="text-[11px] text-ink-600/50 px-2 py-1.5">No saved conversations yet.</div>
+              )}
+              {conversations.map((ch) => (
+                <div key={ch.conversation_id}
+                  className={`group w-full rounded-xl px-3 py-2.5 transition-colors ${
+                    activeConversationId === ch.conversation_id ? 'bg-brand-50 border border-brand-100' : 'hover:bg-brand-50'
+                  }`}>
+                  <button onClick={() => openConversation(ch.conversation_id)} className="w-full text-left">
+                    <div className="flex items-center gap-2">
+                      <MessageSquare size={14} className={activeConversationId === ch.conversation_id ? 'text-brand-600' : 'text-ink-600/60'} />
+                      <span className={`text-xs font-semibold truncate ${activeConversationId === ch.conversation_id ? 'text-brand-700' : 'text-ink-800/65'}`}>
+                        {ch.title || 'Untitled'}
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-ink-600/60 mt-0.5 pl-5">
+                      {ch.message_count} messages
+                    </div>
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleDeleteConversation(ch.conversation_id); }}
+                    className="mt-1 ml-5 inline-flex items-center gap-1 text-[10px] text-ink-600/40 hover:text-red-600 transition-colors"
+                    aria-label="Delete conversation">
+                    <Trash2 size={10} /> Delete
+                  </button>
+                </div>
               ))}
             </div>
           </GlassCard>
@@ -281,8 +485,14 @@ export default function AIAssistantPage() {
             <div className="flex-1 min-w-0">
               <div className="font-display font-bold text-ink-900">Uzhavan AI</div>
               <div className="text-[11px] text-brand-600 flex items-center gap-1">
-                <span className="h-1.5 w-1.5 rounded-full bg-brand-500" />
-                {hasMemory
+                <span className={`h-1.5 w-1.5 rounded-full ${typing ? 'bg-amber-500' : 'bg-brand-500'}`} />
+                {typing
+                  ? <span className="flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> Processing…</span>
+                  : speaking
+                  ? <span className="flex items-center gap-1"><Volume2 size={10} /> Speaking…</span>
+                  : listening
+                  ? <span className="flex items-center gap-1"><Mic size={10} /> Listening…</span>
+                  : hasMemory
                   ? <span className="flex items-center gap-1"><Brain size={10} /> Farm-aware · Gemini AI</span>
                   : 'Online · powered by Gemini AI'}
               </div>

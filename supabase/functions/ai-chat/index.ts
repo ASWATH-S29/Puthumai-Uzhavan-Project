@@ -21,21 +21,60 @@ Your expertise covers:
 - Market prices, mandi rates, FPOs, NAFED
 - Weather-based advisories
 
-Communication style:
+## Context Handling
+You will receive structured context about the farmer's farm, weather, alerts, expenses, yield, and market data. Use ALL of it to give personalised advice. If a data source is marked as "unavailable" or missing, you MUST explicitly tell the farmer that information is unavailable — never fabricate live data (weather, market prices, alerts). General agronomic knowledge is fine to share without a data source.
+
+## Response Structure
+When the question warrants it (pest, disease, fertiliser, irrigation, harvest timing), structure your answer as:
+- **Situation:** Briefly state the current condition based on the farmer's context.
+- **Recommendation:** The recommended action.
+- **What to do now:** Concrete, step-by-step actions (dosages, timing, quantities).
+- **Warning:** Risks or things to avoid.
+- **When to contact an expert:** Suggest consulting a local Krishi Vigyan Kendra (KVK) or TNAU officer when the situation is complex or uncertain.
+
+For simple greetings or general questions, a natural conversational answer is fine.
+
+## Safety
+- Never recommend banned pesticides.
+- Never present uncertain AI crop diagnoses or treatment advice as guaranteed facts. Use language like "likely", "appears to be", "I recommend confirming with a KVK" when diagnosing from a photo or description.
+- Always suggest consulting a local Krishi Vigyan Kendra (KVK) for complex cases.
+
+## Communication style
 - Warm, respectful, practical — speak like a trusted agri-officer
 - Give specific, actionable advice (exact dosages, timings, field names when provided)
 - Use local context: Tamil Nadu districts, TNAU recommendations, state schemes
 - Keep answers concise but complete; use bullet points for multi-step advice
 - When the farmer's profile is provided, reference it directly and tailor every answer
 - Respond in the farmer's preferred language when specified; Tamil is strongly preferred
-- Mix Tamil terms naturally when appropriate (e.g. "நெல் சாகுபடி", "களை நிர்வாகம்")
+- Mix Tamil terms naturally when appropriate (e.g. "நெல் சாகுபடி", "களை நிர்வாகம்")`;
 
-Safety: Never recommend banned pesticides. Always suggest consulting a local Krishi Vigyan Kendra (KVK) for complex cases.`;
-
-function buildSystemInstruction(farmerMemoryContext?: string, preferredLanguage?: string): string {
+function buildSystemInstruction(
+  farmerMemoryContext?: string,
+  preferredLanguage?: string,
+  weatherContext?: string,
+  alertsContext?: string,
+  expensesContext?: string,
+  yieldContext?: string,
+  marketContext?: string,
+): string {
   let instruction = SYSTEM_INSTRUCTION_BASE;
   if (farmerMemoryContext && farmerMemoryContext.trim()) {
     instruction += `\n\n${farmerMemoryContext.trim()}`;
+  }
+  if (weatherContext && weatherContext.trim()) {
+    instruction += `\n\n${weatherContext.trim()}`;
+  }
+  if (alertsContext && alertsContext.trim()) {
+    instruction += `\n\n${alertsContext.trim()}`;
+  }
+  if (expensesContext && expensesContext.trim()) {
+    instruction += `\n\n${expensesContext.trim()}`;
+  }
+  if (yieldContext && yieldContext.trim()) {
+    instruction += `\n\n${yieldContext.trim()}`;
+  }
+  if (marketContext && marketContext.trim()) {
+    instruction += `\n\n${marketContext.trim()}`;
   }
   if (preferredLanguage && preferredLanguage !== 'en') {
     const langNames: Record<string, string> = {
@@ -64,6 +103,11 @@ interface RequestBody {
   farmerMemoryContext?: string;
   preferredLanguage?: string;
   scanPrompt?: string;
+  weatherContext?: string;
+  alertsContext?: string;
+  expensesContext?: string;
+  yieldContext?: string;
+  marketContext?: string;
 }
 
 function getMimeTypeFromDataUri(dataUri: string): string {
@@ -101,7 +145,15 @@ Deno.serve(async (req: Request) => {
         );
       }
 
-      const systemInstruction = buildSystemInstruction(body.farmerMemoryContext, body.preferredLanguage);
+      const systemInstruction = buildSystemInstruction(
+        body.farmerMemoryContext,
+        body.preferredLanguage,
+        body.weatherContext,
+        body.alertsContext,
+        body.expensesContext,
+        body.yieldContext,
+        body.marketContext,
+      );
       const chat = ai.chats.create({ model: MODEL, config: { systemInstruction } });
       const mimeType = getMimeTypeFromDataUri(body.imageDataUri);
       const base64Data = getDataFromDataUri(body.imageDataUri);
@@ -121,7 +173,15 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const systemInstruction = buildSystemInstruction(body.farmerMemoryContext, body.preferredLanguage);
+    const systemInstruction = buildSystemInstruction(
+      body.farmerMemoryContext,
+      body.preferredLanguage,
+      body.weatherContext,
+      body.alertsContext,
+      body.expensesContext,
+      body.yieldContext,
+      body.marketContext,
+    );
     const history = (body.history ?? [])
       .filter((m) => m.role === 'user' || m.role === 'assistant')
       .map((m) => ({
