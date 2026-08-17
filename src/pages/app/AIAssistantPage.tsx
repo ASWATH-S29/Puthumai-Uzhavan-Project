@@ -7,7 +7,7 @@ import { useState, useRef, useEffect, useCallback, type FormEvent } from 'react'
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Bot, Send, Sparkles, Mic, MicOff, ImagePlus, Plus, MessageSquare,
-  AlertCircle, Wifi, Volume2, VolumeX, Globe, Brain,
+  Volume2, VolumeX, Globe, Brain,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import PageHeader from '@/components/ui/PageHeader';
@@ -188,7 +188,6 @@ export default function AIAssistantPage() {
     window.speechSynthesis?.cancel();
   };
 
-  const apiKeyMissing = !import.meta.env.VITE_GEMINI_API_KEY;
   const hasMemory = farmerMemory && (farmerMemory.current_crop || farmerMemory.district || farmerMemory.farmer_name);
 
   return (
@@ -196,20 +195,7 @@ export default function AIAssistantPage() {
       <PageHeader icon={Bot} title="AI Farming Assistant"
         subtitle="Farm-aware AI copilot — uses your farm profile to give personalised, field-specific guidance." />
 
-      {apiKeyMissing && (
-        <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
-          <AlertCircle size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
-          <div>
-            <span className="text-xs font-bold text-amber-700">Gemini API Key Not Configured</span>
-            <p className="text-xs text-amber-700 mt-0.5">
-              Add <code className="font-mono bg-amber-100 px-1 rounded">VITE_GEMINI_API_KEY=your_key</code> to your .env file.
-              Get a free key at <a href="https://aistudio.google.com" target="_blank" rel="noreferrer" className="underline">aistudio.google.com</a>.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {!hasMemory && !apiKeyMissing && (
+      {!hasMemory && (
         <div className="flex items-start gap-3 rounded-xl border border-brand-100 bg-brand-50 px-4 py-3">
           <Brain size={16} className="text-brand-600 flex-shrink-0 mt-0.5" />
           <div className="text-xs text-brand-700">
@@ -296,9 +282,7 @@ export default function AIAssistantPage() {
               <div className="font-display font-bold text-ink-900">Uzhavan AI</div>
               <div className="text-[11px] text-brand-600 flex items-center gap-1">
                 <span className="h-1.5 w-1.5 rounded-full bg-brand-500" />
-                {apiKeyMissing
-                  ? <span className="text-amber-600 flex items-center gap-1"><Wifi size={10} /> API key required</span>
-                  : hasMemory
+                {hasMemory
                   ? <span className="flex items-center gap-1"><Brain size={10} /> Farm-aware · Gemini AI</span>
                   : 'Online · powered by Gemini AI'}
               </div>

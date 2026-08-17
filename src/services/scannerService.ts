@@ -4,8 +4,7 @@ import { askGeminiWithImage } from '@/services/geminiService';
 import type { ScannerRequest, ScannerResponse, ScanResult, CropScanHistoryRow } from '@/services/types';
 
 const MOCK_DELAY = 1500;
-const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-const USE_MOCK = import.meta.env.VITE_USE_MOCK !== 'false';
+const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true';
 
 function parseJsonFromGemini(responseText: string): string {
   const jsonBlockMatch = responseText.match(/```json\s*([\s\S]*?)\s*```/i);
@@ -106,7 +105,7 @@ function buildScanPrompt(crop: string, field: string) {
 }
 
 export async function scanCrop(payload: ScannerRequest): Promise<ScannerResponse> {
-  if (USE_MOCK || !GEMINI_KEY) {
+  if (USE_MOCK) {
     await new Promise((r) => setTimeout(r, MOCK_DELAY));
     return mockScanner(payload.crop, payload.field);
   }
