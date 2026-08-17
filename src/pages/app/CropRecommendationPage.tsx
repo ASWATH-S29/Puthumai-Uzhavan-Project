@@ -43,7 +43,7 @@ export default function CropRecommendationPage() {
   const [search, setSearch] = useState('');
   const [districtFilter, setDistrictFilter] = useState('All');
   const [seasonFilter, setSeasonFilter] = useState('All');
-  const [soilFilter, setSoilFilter] = useState('All');
+  const [soilFilter] = useState('All');
   const [waterFilter, setWaterFilter] = useState('All');
   const [detailCrop, setDetailCrop] = useState<string | null>(null);
   const [form, setForm] = useState({

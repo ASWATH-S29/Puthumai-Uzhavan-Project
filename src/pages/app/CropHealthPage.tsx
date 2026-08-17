@@ -32,8 +32,6 @@ export default function CropHealthPage() {
   const [field, setField] = useState('Field 1');
   const [currentScan, setCurrentScan] = useState<ScannerResponse | null>(null);
   const [recentScans, setRecentScans] = useState<CropScanHistoryRow[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [historyError, setHistoryError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const scansToShow = recentScans.length > 0 ? recentScans : scanResults;
@@ -64,20 +62,14 @@ export default function CropHealthPage() {
   const loadHistory = async () => {
     if (!user?.id) {
       setRecentScans([]);
-      setHistoryError(null);
       return;
     }
-
-    setHistoryLoading(true);
-    setHistoryError(null);
 
     try {
       const rows = await getCropScanHistory(user.id);
       setRecentScans(rows);
-    } catch (err) {
-      setHistoryError(err instanceof Error ? err.message : 'Unable to load scan history');
-    } finally {
-      setHistoryLoading(false);
+    } catch {
+      setRecentScans([]);
     }
   };
 

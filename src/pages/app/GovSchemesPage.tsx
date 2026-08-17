@@ -103,7 +103,7 @@ interface ExpandedState {
 
 export default function GovSchemesPage() {
   const { user } = useAuth();
-  const [schemes, setSchemes] = useState<Scheme[]>(STATIC_SCHEMES);
+  const [schemes] = useState<Scheme[]>(STATIC_SCHEMES);
   const [aiSchemes, setAiSchemes] = useState<string>('');
   const [loadingAI, setLoadingAI] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);

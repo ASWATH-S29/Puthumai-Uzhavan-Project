@@ -102,7 +102,7 @@ function buildScanPrompt(crop: string, field: string) {
     `  "severity": "None" | "Low" | "Moderate" | "High"
 ` +
     `}\n` +
-    `If there is no disease, set "disease" to null and "severity" to \"None\". Do not include any extra text outside the JSON object.`;
+    `If there is no disease, set "disease" to null and "severity" to "None". Do not include any extra text outside the JSON object.`;
 }
 
 export async function scanCrop(payload: ScannerRequest): Promise<ScannerResponse> {

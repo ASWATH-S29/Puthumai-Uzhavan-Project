@@ -367,7 +367,7 @@ export interface FarmCreatePayload {
   notes?: string;
 }
 
-export interface FarmUpdatePayload extends Partial<FarmCreatePayload> {}
+export type FarmUpdatePayload = Partial<FarmCreatePayload>;
 
 /* ------------------------------ Yield --------------------------- */
 

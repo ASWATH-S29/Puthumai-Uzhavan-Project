@@ -12,6 +12,14 @@ interface WeatherCacheEntry {
   data: WeatherData;
 }
 
+interface ForecastEntry {
+  dt: number;
+  pop?: number;
+  main: { temp: number; humidity: number };
+  weather?: { description?: string; icon?: string; main?: string }[];
+  wind?: { speed?: number };
+}
+
 const weatherCache = new Map<string, WeatherCacheEntry>();
 
 function getApiKey() {
@@ -130,7 +138,7 @@ export async function fetchWeather(location: LocationQuery): Promise<WeatherData
     throw new Error('Weather forecast data is unavailable for this location.');
   }
 
-  const grouped = new Map<string, any[]>();
+  const grouped = new Map<string, ForecastEntry[]>();
   for (const item of entries) {
     const dayKey = new Date(item.dt * 1000).toISOString().slice(0, 10);
     const list = grouped.get(dayKey) ?? [];
@@ -157,7 +165,7 @@ export async function fetchWeather(location: LocationQuery): Promise<WeatherData
       sunrise: locationData.sys?.sunrise ? formatTime(locationData.sys.sunrise) : undefined,
       sunset: locationData.sys?.sunset ? formatTime(locationData.sys.sunset) : '',
     },
-    forecast: daily.map((items: any[]) => {
+    forecast: daily.map((items: ForecastEntry[]) => {
       const representative = items.reduce((best, item) => {
         const bestHour = Math.abs(new Date(best.dt * 1000).getUTCHours() - 12);
         const itemHour = Math.abs(new Date(item.dt * 1000).getUTCHours() - 12);

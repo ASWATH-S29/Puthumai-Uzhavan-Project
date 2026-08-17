@@ -86,7 +86,6 @@ function generateRecommendations(payload: CropRecommendRequest, context?: { farm
   const tempHint = weather && typeof weather.temperature === 'number' ? Number(weather.temperature) : normalizedTemp;
   const farmMatches = context?.farms?.filter((farm) => {
     const farmDistrict = String((farm.district as string | undefined) || '').toLowerCase();
-    const farmSoil = String((farm.soil_type as string | undefined) || '').toLowerCase();
     return !district || farmDistrict.includes(district) || district.includes(farmDistrict);
   }) ?? [];
   const soilHint = farmMatches.find((farm) => typeof farm.soil_type === 'string');

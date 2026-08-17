@@ -1,7 +1,6 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { Droplets, TrendingUp, BarChart2, ArrowRight, Award } from 'lucide-react';
-import { useAuth } from '@/context/AuthContext';
 import { useRecommendationsContext } from '@/context/RecommendationContext';
 
 // Unsplash-based crop images (free to use)
@@ -12,14 +11,7 @@ const cropImages: Record<string, string> = {
   Groundnut:   'https://images.unsplash.com/photo-1567306226416-28f0efdc88ce?w=400&q=80',
 };
 
-const demandColor: Record<string, string> = {
-  High:   'bg-green-50 text-green-700',
-  Medium: 'bg-amber-50 text-amber-700',
-  Low:    'bg-red-50 text-red-600',
-};
-
 export default function CropRecommendationCard() {
-  const { user } = useAuth();
   const { recommendations } = useRecommendationsContext();
   const top = useMemo(() => recommendations[0], [recommendations]);
   const img = top ? cropImages[top.recommended_crop] ?? cropImages['Paddy'] : cropImages['Paddy'];

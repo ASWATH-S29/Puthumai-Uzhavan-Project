@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import { useEffect, useMemo, useState } from 'react';
-import { MapPinned, Sprout, Layers, FlaskConical, CalendarRange, Star, BadgeCheck, Plus, Pencil, Trash2, Loader2 } from 'lucide-react';
+import { MapPinned, Sprout, Layers, FlaskConical, CalendarRange, Star, BadgeCheck, Plus, Pencil, Trash2 } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
 import GlassCard from '@/components/ui/GlassCard';
 import StatTile from '@/components/ui/StatTile';
@@ -11,7 +11,7 @@ import { CardSkeleton } from '@/components/ui/Skeleton';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/components/ui/Toast';
 import { useFarms } from '@/hooks/useFarms';
-import { farmerProfile, fields, soilInfo, previousSeasons, farmImages } from '@/data/dummyData';
+import { farmerProfile, soilInfo, previousSeasons, farmImages } from '@/data/dummyData';
 import type { FarmRecord, FarmCreatePayload, FarmUpdatePayload } from '@/services/types';
 
 const farmPhotoUrls = [

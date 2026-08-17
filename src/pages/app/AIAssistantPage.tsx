@@ -21,6 +21,27 @@ import { createGeminiSession, type GeminiSession } from '@/services/geminiServic
 import { useAuth } from '@/context/AuthContext';
 import { getFarmerMemory, buildFarmerMemoryContext, type FarmerMemory } from '@/services/farmerMemoryService';
 
+interface SpeechRecognitionResultLike {
+  0?: { transcript?: string };
+}
+interface SpeechRecognitionEventLike {
+  results?: SpeechRecognitionResultLike[];
+}
+interface SpeechRecognitionErrorEventLike {
+  error: string;
+}
+interface SpeechRecognitionInstance {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onresult: (event: SpeechRecognitionEventLike) => void;
+  onerror: (event: SpeechRecognitionErrorEventLike) => void;
+  onend: () => void;
+  start: () => void;
+  stop: () => void;
+}
+type SpeechRecognitionCtor = new () => SpeechRecognitionInstance;
+
 const LANGUAGE_OPTIONS = [
   { code: 'ta-IN', label: 'Tamil',     prompt: 'ta' },
   { code: 'en-IN', label: 'English',   prompt: 'en' },
@@ -90,15 +111,15 @@ export default function AIAssistantPage() {
   const [listening, setListening] = useState(false);
   const [voiceSupported, setVoiceSupported] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
 
   useEffect(() => {
-    const SR = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
+    const SR = (window as unknown as { SpeechRecognition?: SpeechRecognitionCtor; webkitSpeechRecognition?: SpeechRecognitionCtor }).SpeechRecognition ?? (window as unknown as { webkitSpeechRecognition?: SpeechRecognitionCtor }).webkitSpeechRecognition;
     setVoiceSupported(!!SR);
   }, []);
 
   const toggleVoice = useCallback(() => {
-    const SR = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
+    const SR = (window as unknown as { SpeechRecognition?: SpeechRecognitionCtor; webkitSpeechRecognition?: SpeechRecognitionCtor }).SpeechRecognition ?? (window as unknown as { webkitSpeechRecognition?: SpeechRecognitionCtor }).webkitSpeechRecognition;
     if (!SR) {
       setVoiceError('Voice input is not supported in this browser. Try Chrome on Android or desktop.');
       return;
@@ -110,12 +131,12 @@ export default function AIAssistantPage() {
       rec.lang = selectedLang.code;
       rec.continuous = false;
       rec.interimResults = false;
-      rec.onresult = (event: any) => {
+      rec.onresult = (event: SpeechRecognitionEventLike) => {
         const t = event.results?.[0]?.[0]?.transcript ?? '';
         if (t) setInput(t);
         setListening(false);
       };
-      rec.onerror = (event: any) => {
+      rec.onerror = (event: SpeechRecognitionErrorEventLike) => {
         const m: Record<string, string> = {
           'not-allowed': 'Microphone permission denied.',
           'no-speech': 'No speech detected. Please speak clearly.',
